@@ -107,6 +107,11 @@
                 <div id="vip-indicator" class="glass-panel rounded-xl px-3 py-2 hidden items-center gap-2 text-xs font-bold text-purple-300 border-purple-500/40">
                     <i class="fas fa-crown text-purple-400 animate-bounce"></i> VIP SPRINT
                 </div>
+                <!-- Indicator Vies -->
+                <div id="lives-indicator" class="glass-panel rounded-xl px-3 py-2 flex items-center gap-2 text-xs font-bold text-rose-300 border-rose-500/40">
+                    <i class="fas fa-heart text-rose-500"></i> <span id="lives-count">0</span>
+                    <span class="text-slate-400 font-normal">· FUREUR <span id="fury-count">0</span>/3</span>
+                </div>
                 <!-- Indicator Vol -->
                 <div id="fly-indicator" class="glass-panel rounded-xl px-3 py-2 hidden items-center gap-2 text-xs font-bold text-teal-300 border-teal-500/40">
                     <i class="fas fa-dove text-teal-400 animate-bounce"></i> VOL · MAINTIENS SAUT
@@ -273,6 +278,7 @@
         let gameSpeed = 6.6;
         let screenShake = 0;
         let camY = 0, camDown = false;
+        let lives = 0, hyperCount = 0;
         let dpr = 1, lastTime = 0, streak = 0, lastLandedSlide = null, gameOverAt = 0;
 
         // Entités et Objets
@@ -417,7 +423,7 @@
                 }
 
                 // Ailes (clignotent quand le vol se termine)
-                if (this.flyTimer > 0 && (this.flyTimer > 60 || Math.floor(this.flyTimer / 5) % 2 === 0)) {
+                if (this.flyTimer > 0 && (this.flyTimer > 90 || Math.floor(this.flyTimer / 5) % 2 === 0)) {
                     ctx.save();
                     ctx.fillStyle = 'rgba(45, 212, 191, 0.85)';
                     ctx.shadowColor = '#2dd4bf';
@@ -915,13 +921,36 @@
             return wantMain ? reachedMain : true;
         }
 
+        function botFly() {
+            const look = gameSpeed * 40 + 80;
+            let targetY = height * 0.3;
+            let best = null;
+            for (const c of collectibles) {
+                if (c.collected || c.x < player.x || c.x > player.x + 420) continue;
+                if (!best || c.x < best.x) best = c;
+            }
+            if (best) targetY = best.y + best.height / 2 - player.height / 2;
+            for (const o of obstacles) {
+                const b = obstacleBox(o);
+                if (b.x + b.w < player.x - 20 || b.x > player.x + look) continue;
+                targetY = Math.min(targetY, b.y - 18 - player.height);
+            }
+            targetY = Math.min(Math.max(40, targetY), height * 0.78 - player.height);
+            if (player.y > targetY + 10) player.flyHold = true;
+            else if (player.y < targetY - 10) player.flyHold = false;
+        }
+
         function updateBotLogic() {
             if (!autoBotActive || gameState !== 'PLAYING') return;
-            if (player.flyTimer > 0) { player.flyHold = player.y > height * 0.18; return; }
+            if (player.flyTimer > 0) { botFly(); return; }
             if (player.jumpsLeft <= 0) return;
-            if (player.y > height * 0.85 && botSim(0, 80, true)) { player.jump(); return; }   // remonter depuis la voie de rattrapage
+            if (player.y > height * 0.85) {
+                for (let d = 0; d <= 40; d += 4) {
+                    if (botSim(d, 80, true)) { if (d === 0) player.jump(); return; }
+                }
+            }   // remonter depuis la voie de rattrapage
             if (botSim(-1, 50)) return;                                   // rien à craindre
-            if (botSim(0, 60) && !botSim(4, 60)) player.jump();           // dernier moment sûr
+            if (botSim(0, 60) && !botSim(6, 60)) player.jump();           // dernier moment sûr
             else if (!botSim(0, 60) && !botSim(-1, 6)) player.jump();     // urgence
         }
 
@@ -1001,7 +1030,52 @@
         // Collision Engine & Combos
         const pauseScreen = document.getElementById('pause-screen');
         const flyIndicator = document.getElementById('fly-indicator');
+        const livesCount = document.getElementById('lives-count');
+        const furyCount = document.getElementById('fury-count');
         const newRecord = document.getElementById('new-record');
+
+        function updateLivesHud() {
+            livesCount.textContent = lives;
+            furyCount.textContent = hyperCount;
+        }
+
+        // Retourne true si une vie a absorbé le coup, sinon déclenche le game over
+        function loseLife(reason) {
+            if (lives > 0) {
+                lives--;
+                updateLivesHud();
+                screenShake = 14;
+                playSound('hit');
+                player.invuln = 120;
+                streak = 0;
+                if (combo !== 1) setCombo(1);
+                addFloatingText('VIE PERDUE !', player.x, player.y - 30, '#f43f5e');
+                return true;
+            }
+            triggerGameOver(reason);
+            return false;
+        }
+
+        // Replace le joueur sur une diapo de la voie principale (zone d'atterrissage dégagée)
+        function respawnOnMain() {
+            const target = slides.filter(s => !s.rescue && s.x + s.width > player.x + 120)
+                                 .sort((a, b) => a.x - b.x)[0];
+            if (!target) return;
+            const dx = target.x - (player.x - 20);
+            if (dx > 0) {
+                slides.forEach(s => s.x -= dx);
+                obstacles.forEach(o => o.x -= dx);
+                collectibles.forEach(c => c.x -= dx);
+            }
+            obstacles = obstacles.filter(o => !(o.x > player.x - 40 && o.x < player.x + 220 && Math.abs(o.y - target.y) < 2));
+            player.y = target.y - player.height - 4;
+            player.vy = 0;
+            player.jumpsLeft = 2;
+            player.flyTimer = 0;
+            player.invuln = 150;
+            player.wasGrounded = false;
+            camDown = false;
+        }
 
         function setCombo(v) {
             combo = v;
@@ -1085,7 +1159,7 @@
                     score += 50;
                     obs.x = -999;
                 } else {
-                    triggerGameOver('Vous avez été percuté par un piège !');
+                    if (loseLife('Vous avez été percuté par un piège !')) { obs.x = -999; continue; }
                     return;
                 }
             }
@@ -1109,11 +1183,20 @@
                     addFloatingText('BOUCLIER!', item.x, item.y, '#22d3ee');
                 } else if (item.type === 'hyper') {
                     player.hyperTimer = 240;
+                    hyperCount++;
+                    if (hyperCount >= 3) {
+                        hyperCount = 0;
+                        lives++;
+                        playSound('shield');
+                        createParticles(player.x + player.width / 2, player.y, '#f43f5e', 22);
+                        addFloatingText('+1 VIE !', player.x, player.y - 40, '#f43f5e');
+                    }
+                    updateLivesHud();
                     playSound('hyper');
                     createParticles(item.x, item.y, '#fde047', 18);
                     addFloatingText('FUREUR x2!', item.x, item.y, '#fde047');
                 } else if (item.type === 'fly') {
-                    player.flyTimer = 300;
+                    player.flyTimer = 540;
                     player.jumpsLeft = 2;
                     playSound('fly');
                     createParticles(item.x, item.y, '#2dd4bf', 18);
@@ -1126,7 +1209,7 @@
                 }
             }
 
-            if (player.y > height + 330) triggerGameOver('Vous êtes tombé entre deux diapositives !');
+            if (player.y > height + 330 && loseLife('Vous êtes tombé entre deux diapositives !')) respawnOnMain();
         }
 
         function triggerGameOver(reason) {
@@ -1172,6 +1255,9 @@
             const first = new Slide(50, startY, 480, 80, slideThemes[0]);
             slides.push(first);
             lastLandedSlide = first;
+            lives = 0;
+            hyperCount = 0;
+            updateLivesHud();
             camY = 0;
             camDown = false;
             player.reset(startY - player.height);
