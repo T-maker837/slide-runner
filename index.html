@@ -167,6 +167,37 @@
                 </div>
             </div>
 
+            <!-- Choix du monde -->
+            <div class="mb-6">
+                <label class="block text-xs font-semibold uppercase text-slate-400 mb-2">Monde</label>
+                <div class="grid grid-cols-3 gap-2">
+                    <button class="world-btn px-2 py-2 rounded-xl border border-slate-700 text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all cursor-pointer" data-world="0">🏢 Bureau</button>
+                    <button class="world-btn px-2 py-2 rounded-xl border border-slate-700 text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all cursor-pointer" data-world="1">🚀 Espace</button>
+                    <button class="world-btn px-2 py-2 rounded-xl border border-slate-700 text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all cursor-pointer" data-world="2">🌋 Volcan</button>
+                    <button class="world-btn px-2 py-2 rounded-xl border border-slate-700 text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all cursor-pointer" data-world="3">🌊 Océan</button>
+                    <button class="world-btn px-2 py-2 rounded-xl border border-slate-700 text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all cursor-pointer" data-world="4">🤖 Cyber</button>
+                    <button class="world-btn px-2 py-2 rounded-xl border border-slate-700 text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all cursor-pointer" data-world="all">🌍 Voyage</button>
+                </div>
+            </div>
+
+            <!-- Nombre de sauts -->
+            <div class="mb-6">
+                <label class="flex justify-between text-xs font-semibold uppercase text-slate-400 mb-2">
+                    <span>Nombre de sauts</span><span id="jumps-value" class="text-indigo-300">2</span>
+                </label>
+                <!-- ✏️ SAUTS : min / max = limites de la barre, value = valeur affichée au départ (garde la même valeur que "maxJumps" dans le script) -->
+                <input id="jumps-slider" type="range" min="1" max="9999999999" step="1" value="2" class="w-full accent-indigo-500 cursor-pointer">
+            </div>
+
+            <!-- Durée du vol -->
+            <div class="mb-6">
+                <label class="flex justify-between text-xs font-semibold uppercase text-slate-400 mb-2">
+                    <span>Durée du vol</span><span class="text-teal-300"><span id="fly-value">9</span> s</span>
+                </label>
+                <!-- ✏️ DURÉE DU VOL : min / max = limites de la barre en secondes, value = valeur affichée au départ (garde la même valeur que "flyDuration" dans le script) -->
+                <input id="fly-slider" type="range" min="3" max="3600" step="1" value="9" class="w-full accent-teal-500 cursor-pointer">
+            </div>
+
             <button id="btn-start" class="btn-game w-full py-4 bg-gradient-to-r from-indigo-500 via-purple-600 to-pink-500 rounded-2xl font-bold text-lg text-white hover:opacity-90 shadow-indigo-500/30 mb-4 flex items-center justify-center gap-2 cursor-pointer">
                 <i class="fas fa-play"></i> LANCER LA PRÉSENTATION
             </button>
@@ -231,13 +262,25 @@
     </div>
 
     <script>
+        // =====================================================================
+        //  SLIDE RUNNER DELUXE : GUIDE DU CODE
+        //  Le jeu fonctionne en 3 temps, répétés ~60 fois par seconde (gameLoop) :
+        //    1. METTRE À JOUR : on déplace les diapos/obstacles/bonus vers la gauche,
+        //       on applique la physique du joueur, on crée de nouvelles diapos.
+        //    2. DÉTECTER les collisions (atterrissage, obstacles, bonus, chute).
+        //    3. DESSINER tout sur le canvas.
+        //  Le joueur ne bouge jamais horizontalement : c'est le décor qui défile.
+        //  Les commentaires marqués ✏️ indiquent les endroits faciles à modifier.
+        // =====================================================================
         /**
          * SLIDE RUNNER ULTIMATE ENGINE
          */
 
+        // Le canvas est la zone de dessin du jeu ; ctx est le « pinceau » qui dessine dessus.
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
 
+        // Raccourcis vers les éléments HTML (score, boutons, écrans...) pour pouvoir les modifier depuis le script.
         // Références UI
         const scoreDisplay = document.getElementById('score-display');
         const slideCountDisplay = document.getElementById('slide-count-display');
@@ -263,32 +306,60 @@
         const btnHome = document.getElementById('btn-home');
         const btnTouchJump = document.getElementById('btn-touch-jump');
 
+        // Ces variables décrivent l'état de la partie en cours ; elles sont lues et modifiées partout dans le code.
         // Variables d'état globales
+        // Taille de l'écran en pixels (mise à jour dans handleResize quand on redimensionne la fenêtre).
         let width = window.innerWidth;
         let height = window.innerHeight;
+        // État du jeu : décide ce qui est mis à jour et dessiné dans gameLoop.
+        // START = écran d'accueil, PLAYING = en jeu, PAUSED = pause, GAMEOVER = perdu.
         let gameState = 'START'; // 'START', 'PLAYING', 'PAUSED', 'GAMEOVER'
+        // Difficulté choisie sur l'écran d'accueil : change l'écart entre les diapos, la vitesse de départ et le nombre d'obstacles.
         let difficulty = 'normal'; // 'easy', 'normal', 'hard'
+        // Score actuel (nombre décimal : il est affiché arrondi).
         let score = 0;
+        // Meilleur score, sauvegardé dans le navigateur (localStorage) pour le retrouver à la prochaine visite.
         let highScore = 0;
         try { highScore = parseInt(localStorage.getItem('slide_runner_highscore')) || 0; } catch (e) {}
+        // Multiplicateur de score (x1 à x5) : il monte quand on enchaîne les diapos.
         let combo = 1;
+        // Plus haut combo atteint pendant la partie (affiché à la fin).
         let maxCombo = 1;
+        // Nombre de diapos franchies.
         let slidesCleared = 0;
+        // Vitesse de défilement « de base » : elle augmente doucement pendant la partie (plafonnée dans gameLoop).
         let baseSpeed = 6.6;
+        // Vitesse réellement appliquée = baseSpeed × vitesse du monde × bonus (café, VIP), adoucie pour éviter les à-coups.
         let gameSpeed = 6.6;
+        // Intensité du tremblement d'écran en pixels (elle diminue toute seule).
         let screenShake = 0;
+        // Caméra verticale : camY = décalage vers le bas ; camDown = true quand on est sur la voie de rattrapage.
         let camY = 0, camDown = false;
+        // Vies en réserve, et nombre de boosters Fureur ramassés vers la prochaine vie (3 Fureur = +1 vie).
         let lives = 0, hyperCount = 0;
+        // ✏️ SAUTS : nombre de sauts par défaut (1 = pas de double saut, 2 = double saut, etc.).
+        // Il est remplacé par la valeur choisie avec la barre de l'écran d'accueil.
+        let maxJumps = 2;
+        // ✏️ DURÉE DU VOL : durée du bonus de vol en SECONDES (9 par défaut).
+        // Elle est remplacée par la valeur choisie avec la barre de l'écran d'accueil.
+        let flyDuration = 9;
+        // dpr = densité de pixels de l'écran (pour une image nette) ; lastTime = heure de la dernière image (sert au delta-time) ;
+        // streak = diapos enchaînées (sert au combo) ; lastLandedSlide = dernière diapo sur laquelle on s'est posé ;
+        // gameOverAt = instant du game over (évite de relancer la partie par accident en tapant sur Espace).
         let dpr = 1, lastTime = 0, streak = 0, lastLandedSlide = null, gameOverAt = 0;
 
+        // Chaque tableau contient les objets actuellement présents dans le monde.
+        // À chaque image, ils sont tous déplacés vers la gauche : c'est ce qui donne l'impression d'avancer.
         // Entités et Objets
         let slides = [];
         let obstacles = [];
         let collectibles = [];
         let particles = [];
         let floatingTexts = [];
+        // (Particules de fond : pluie, étoiles, bulles... selon le monde. Le nom vient du premier monde, le Bureau.)
         let officeRain = [];
 
+        // Un thème = bg (couleur de fond), border (couleur du contour et du titre), title (texte écrit sur la diapo).
         // Thèmes visuels des diapositives
         const slideThemes = [
             { bg: '#1e293b', border: '#38bdf8', title: 'Rapport Trimestriel' },
@@ -298,25 +369,40 @@
             { bg: '#451a03', border: '#fbbf24', title: 'Objectifs KPI' }
         ];
 
+        // Le joueur est un simple objet : une position (x, y), une vitesse verticale (vy) et des fonctions (reset, jump, update, draw).
         // Définition du Joueur
         const player = {
+            // Position horizontale FIXE : c'est le monde qui défile, pas le joueur.
             x: 120,
+            // Position verticale du HAUT du personnage (remise à jour dans reset()).
             y: 300,
+            // Taille du personnage en pixels.
             width: 36,
             height: 52,
+            // Vitesse verticale : négative = il monte, positive = il tombe.
             vy: 0,
+            // Gravité : ajoutée à vy à chaque image. Plus le nombre est grand, plus on retombe vite.
             gravity: 0.65,
-            jumpStrength: -13.5,
+            jumpStrength: -13.5, // (non utilisé : la puissance réelle du saut est dans jumpPower() plus bas)
+            // true quand le joueur est posé sur une diapo.
             isGrounded: false,
+            // Sauts restants avant de toucher le sol (remis à maxJumps à chaque atterrissage).
             jumpsLeft: 2,
+            // Déformation « squash & stretch » : le personnage s'écrase à l'atterrissage et s'étire au saut (effet purement visuel).
             scaleX: 1,
             scaleY: 1,
+            // true = bouclier actif : il absorbe un obstacle.
             shieldActive: false,
+            // Timers des bonus, en images (60 images ≈ 1 seconde) :
+            // hyperTimer = Fureur (score x2, détruit les obstacles), coffeeBoostTimer = café (vitesse + score x1.5),
+            // vipTimer = Sprint VIP (très rapide, détruit les obstacles), flyTimer = vol.
             hyperTimer: 0,
             coffeeBoostTimer: 0,
             vipTimer: 0,
             flyTimer: 0,
+            // true tant que le joueur maintient la touche de saut (en vol, ça fait monter).
             flyHold: false,
+            // Remet le joueur à zéro au début d'une partie (startY = hauteur de départ, juste au-dessus de la première diapo).
             reset: function(startY = 300) {
                 this.invuln = 0;
                 this.wasGrounded = true;
@@ -327,7 +413,7 @@
                 this.y = startY;
                 this.vy = 0;
                 this.isGrounded = false;
-                this.jumpsLeft = 2;
+                this.jumpsLeft = maxJumps;
                 this.scaleX = 1;
                 this.scaleY = 1;
                 this.shieldActive = false;
@@ -335,9 +421,12 @@
                 this.coffeeBoostTimer = 0;
                 this.vipTimer = 0;
             },
+            // Saut variable : si on relâche vite la touche, on coupe la montée en deux → saut plus court.
             cutJump: function() {
                 if (this.flyTimer <= 0 && this.vy < -4) this.vy *= 0.5;
             },
+            // Saute s'il reste des sauts : donne une vitesse vers le haut (vy négatif), retire un saut, déforme le personnage, joue un son.
+            // La puissance du saut vient de jumpPower(). Impossible de sauter pendant le vol (on contrôle alors l'altitude).
             jump: function() {
                 if (this.flyTimer > 0) return;
                 if (this.jumpsLeft > 0) {
@@ -350,6 +439,8 @@
                     createParticles(this.x + this.width / 2, this.y + this.height, '#38bdf8', 8);
                 }
             },
+            // Physique, appelée à chaque image. dt = temps écoulé (1 = 1/60 s) : le jeu va ainsi à la même vitesse sur tous les écrans.
+            // On mémorise d'abord le bas du personnage (prevBottom) : checkCollisions s'en sert pour savoir si on a traversé le haut d'une diapo.
             update: function(dt = 1) {
                 this.prevBottom = this.y + this.height;
                 if (this.flyTimer > 0) {
@@ -378,6 +469,7 @@
                 this.vipTimer = Math.max(0, this.vipTimer - dt);
                 this.flyTimer = Math.max(0, this.flyTimer - dt);
             },
+            // Dessine le personnage (ombre, corps, visage, aura des bonus...). Aucune logique de jeu ici : uniquement de l'affichage.
             draw: function() {
                 ctx.save();
                 ctx.translate(this.x + this.width / 2, this.y + this.height / 2);
@@ -388,6 +480,7 @@
                 const py = -this.height / 2;
                 const time = Date.now() * 0.005;
 
+                // (Tout ce qui suit dessine le personnage avec des formes simples : ellipses, rectangles arrondis, arcs.)
                 // Ombre sous le personnage
                 ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
                 ctx.beginPath();
@@ -511,6 +604,8 @@
         }
 
         // Classes Objets du Jeu
+        // Une diapositive = une plateforme rectangulaire. Son bord haut (y) est le « sol » sur lequel on marche.
+        // Les propriétés x, y, width, height positionnent le rectangle ; theme donne les couleurs ; .rescue = true pour la voie de rattrapage.
         class Slide {
             constructor(x, y, width, height, theme) {
                 this.x = x;
@@ -542,6 +637,8 @@
             }
         }
 
+        // Un piège posé sur une diapo. Trois types : 'deadline' (horloge), 'pin' (punaise) et 'laser'.
+        // width/height servent au dessin ; la vraie zone de collision, plus petite et plus juste, est calculée par obstacleBox().
         class Obstacle {
             constructor(x, y, type) {
                 this.x = x;
@@ -663,6 +760,8 @@
             }
         }
 
+        // Un booster à ramasser. Types : 'coffee' (café), 'shield' (bouclier), 'hyper' (Fureur), 'vip' (Sprint VIP), 'fly' (vol).
+        // Il flotte de haut en bas grâce à floatOffset (un décalage aléatoire pour que les bonus ne bougent pas tous en même temps).
         class Collectible {
             constructor(x, y, type) {
                 this.x = x;
@@ -683,6 +782,7 @@
                 // Halo lumineux sous le booster
                 ctx.shadowBlur = 15;
 
+                // Chaque type a sa propre apparence (couleur du halo, forme et icône).
                 if (this.type === 'coffee') {
                     ctx.shadowColor = '#f59e0b';
 
@@ -780,7 +880,10 @@
             }
         }
 
+        // Les particules sont de petits carrés lancés dans toutes les directions qui s'effacent (effets de saut, d'impact, de bonus).
+        // Les textes volants sont des messages qui montent et disparaissent (« +1 VIE ! », « COMBO x2 »...).
         // Effets de Particules & Textes Volants
+        // Crée « count » particules à la position (x, y), avec une vitesse et une taille aléatoires.
         function createParticles(x, y, color, count) {
             for (let i = 0; i < count; i++) {
                 particles.push({
@@ -795,6 +898,7 @@
             }
         }
 
+        // Déplace, dessine puis supprime les particules devenues invisibles. Avec dt = 0 (pause), elles restent figées.
         function updateParticles(dt = 1) {
             particles.forEach((p, index) => {
                 p.x += p.vx * dt;
@@ -808,6 +912,7 @@
             particles = particles.filter(p => p.alpha > 0);
         }
 
+        // Ajoute un message qui monte (vy négatif) en s'effaçant peu à peu.
         function addFloatingText(text, x, y, color) {
             floatingTexts.push({ text, x, y, color, alpha: 1, vy: -1.5 });
         }
@@ -825,6 +930,8 @@
             floatingTexts = floatingTexts.filter(ft => ft.alpha > 0);
         }
 
+        // Joue un son selon l'évènement. Chaque son est une note (ex. 'C5') jouée pendant une durée ('16n' = très court).
+        // ✏️ Change la note ou la durée pour modifier un son.
         function playSound(type) {
             if (!soundEnabled) return;
             try {
@@ -839,6 +946,70 @@
             } catch (e) {}
         }
 
+        // ✏️ MONDES : ajoute ou modifie un monde ici.
+        // themes = couleurs/titres des diapos, bgTop/bgBottom = dégradé du fond,
+        // rain = particules (shape 'line' ou 'dot', dir 1 = tombent / -1 = montent / 0 = défilent, color, sp = vitesse),
+        // speed = multiplicateur de vitesse du monde, obst = obstacles en plus (0.1 = +10 %)
+        const worlds = [
+            { name: 'Bureau', themes: slideThemes, bgTop: '#0b0f19', bgBottom: '#111827',
+              rain: { shape: 'line', dir: 1, color: '#64748b' }, speed: 1, obst: 0 },
+            { name: 'Espace', bgTop: '#02010a', bgBottom: '#1b0b3a',
+              themes: [
+                { bg: '#0f172a', border: '#818cf8', title: 'Mission Lune' },
+                { bg: '#1e1b4b', border: '#c084fc', title: 'Station Orbitale' },
+                { bg: '#082f49', border: '#38bdf8', title: 'Cap sur Mars' },
+                { bg: '#172554', border: '#60a5fa', title: 'Ceinture astéroïdes' }],
+              rain: { shape: 'dot', dir: 0, drift: -1.2, color: '#e0e7ff' }, speed: 1.05, obst: 0.05 },
+            { name: 'Volcan', bgTop: '#1a0505', bgBottom: '#5a1a06',
+              themes: [
+                { bg: '#2a0a05', border: '#f97316', title: 'Coulée de lave' },
+                { bg: '#3b0d0d', border: '#ef4444', title: 'Cratère Nord' },
+                { bg: '#431407', border: '#fbbf24', title: 'Pont de basalte' },
+                { bg: '#292524', border: '#fb923c', title: 'Cendres ardentes' }],
+              rain: { shape: 'dot', dir: -1, sp: 1.4, color: '#fb923c' }, speed: 1.1, obst: 0.1 },
+            { name: 'Océan', bgTop: '#021526', bgBottom: '#064663',
+              themes: [
+                { bg: '#083344', border: '#22d3ee', title: 'Récif de corail' },
+                { bg: '#0c4a6e', border: '#38bdf8', title: 'Fosse abyssale' },
+                { bg: '#134e4a', border: '#2dd4bf', title: 'Épave engloutie' },
+                { bg: '#172554', border: '#93c5fd', title: 'Banc de poissons' }],
+              rain: { shape: 'dot', dir: -1, sp: 0.6, color: '#7dd3fc' }, speed: 0.95, obst: 0.05 },
+            { name: 'Cyber', bgTop: '#05000f', bgBottom: '#240046',
+              themes: [
+                { bg: '#1a0033', border: '#e879f9', title: 'Neon District' },
+                { bg: '#0a0a23', border: '#22d3ee', title: 'Réseau Central' },
+                { bg: '#14001f', border: '#a3e635', title: 'Mainframe 2099' },
+                { bg: '#1e0a3c', border: '#f472b6', title: 'Serveur Fantôme' }],
+              rain: { shape: 'line', dir: 1, sp: 2, color: '#22d3ee' }, speed: 1.2, obst: 0.1 }
+        ];
+        let worldChoice = 0;              // index du monde choisi, ou 'all' = voyage entre tous les mondes
+        let currentWorld = worlds[0];
+
+        // Convertit une couleur '#rrggbb' en trois nombres [rouge, vert, bleu], pour pouvoir faire glisser le fond d'une couleur à l'autre.
+        const hexRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+        // Couleurs du fond actuellement affichées (elles se rapprochent peu à peu de celles du monde).
+        const bgCur = { top: hexRgb(worlds[0].bgTop), bot: hexRgb(worlds[0].bgBottom) };
+        // Aligne tout de suite le fond sur le monde actuel, sans transition (début de partie, choix d'un monde).
+        function snapBackground() {
+            bgCur.top = hexRgb(currentWorld.bgTop);
+            bgCur.bot = hexRgb(currentWorld.bgBottom);
+        }
+        // Dessine le dégradé de fond. Ses couleurs glissent doucement vers celles du monde actuel (transition entre mondes).
+        function drawBackground(dt) {
+            const k = Math.min(1, 0.03 * dt);
+            const tt = hexRgb(currentWorld.bgTop), tb = hexRgb(currentWorld.bgBottom);
+            for (let i = 0; i < 3; i++) {
+                bgCur.top[i] += (tt[i] - bgCur.top[i]) * k;
+                bgCur.bot[i] += (tb[i] - bgCur.bot[i]) * k;
+            }
+            const g = ctx.createLinearGradient(0, 0, 0, height);
+            g.addColorStop(0, 'rgb(' + bgCur.top.map(Math.round).join(',') + ')');
+            g.addColorStop(1, 'rgb(' + bgCur.bot.map(Math.round).join(',') + ')');
+            ctx.fillStyle = g;
+            ctx.fillRect(0, 0, width, height);
+        }
+
+        // Crée les 40 particules de fond avec une position, une taille, une vitesse et une transparence au hasard.
         function initOfficeRain() {
             officeRain = [];
             for (let i = 0; i < 40; i++) {
@@ -853,12 +1024,16 @@
         }
 
         // Bot IA Vars
+        // true quand le pilote automatique (bot) est activé, avec le bouton ou la touche B.
         let autoBotActive = false;
 
         // Audio Tone.js Synthétique Adouci
         let soundEnabled = true;
+        // Trois « instruments » Tone.js : synth = sauts, noiseSynth = bruit des chocs, powerupSynth = bonus.
         let synth, noiseSynth, powerupSynth;
 
+        // Crée les instruments sonores (une seule fois). À appeler après un clic ou une touche du joueur :
+        // les navigateurs interdisent de jouer du son avant la première action de l'utilisateur.
         function initAudio() {
             try { if (window.Tone && Tone.context.state !== 'running') Tone.start(); } catch (e) {}
             if (synth) return;
@@ -886,6 +1061,17 @@
             }
         }
 
+        // ---------------------------------------------------------------------
+        // BOT IA : il ne « triche » pas, il regarde dans le futur.
+        // botSim() fait une COPIE VIRTUELLE du jeu : elle fait avancer le joueur image par image
+        // (gravité, saut, défilement des diapos) et répond « est-ce que je survis ? ».
+        // Le bot teste plusieurs scénarios (ne rien faire / sauter maintenant / sauter plus tard)
+        // et choisit le bon moment pour sauter.
+        //   jumpAt   : image à laquelle on saute dans la simulation (-1 = on ne saute jamais)
+        //   horizon  : nombre d'images simulées (50 images ≈ 0,8 seconde)
+        //   wantMain : si true, il faut en plus atterrir sur la voie principale (pour remonter)
+        // Retourne true si le scénario est sûr (pas de chute, pas d'obstacle touché).
+        // ---------------------------------------------------------------------
         // Bot Autopilote : simule la trajectoire pour choisir le bon moment de saut
         function botSim(jumpAt, horizon, wantMain = false) {
             let reachedMain = false;
@@ -906,7 +1092,7 @@
                     y += vy;
                     if (vy >= 0) {
                         const land = slides.find(s => player.x + bw - 4 > s.x - off && player.x + 4 < s.x + s.width - off && prevBottom <= s.y + 8 && y + bh >= s.y);
-                        if (land) { if (land.rescue && !startRescue) return false; if (!land.rescue) reachedMain = true; grounded = true; y = land.y - bh; vy = 0; jl = 2; }
+                        if (land) { if (land.rescue && !startRescue) return false; if (!land.rescue) reachedMain = true; grounded = true; y = land.y - bh; vy = 0; jl = maxJumps; }
                     }
                     if (y > height + 330) return false;
                 }
@@ -921,6 +1107,8 @@
             return wantMain ? reachedMain : true;
         }
 
+        // Pilotage pendant le vol : le bot choisit une altitude cible (cherche le bonus le plus proche devant lui,
+        // sinon vole à 30 % de la hauteur) et monte au-dessus des obstacles qui arrivent. flyHold = maintenir la touche de saut.
         function botFly() {
             const look = gameSpeed * 40 + 80;
             let targetY = height * 0.3;
@@ -940,6 +1128,9 @@
             else if (player.y < targetY - 10) player.flyHold = false;
         }
 
+        // Décision du bot, appelée à chaque image quand il est activé :
+        //  1. En vol → botFly().  2. Sur la voie de rattrapage → il planifie sa remontée.
+        //  3. Sinon : si rester sur place est sûr, il ne fait rien ; sinon il saute au dernier moment sûr (avec une petite marge).
         function updateBotLogic() {
             if (!autoBotActive || gameState !== 'PLAYING') return;
             if (player.flyTimer > 0) { botFly(); return; }
@@ -954,37 +1145,50 @@
             else if (!botSim(0, 60) && !botSim(-1, 6)) player.jump();     // urgence
         }
 
+        // Génération procédurale : les diapos sont créées au hasard, toujours 6 d'avance devant le joueur.
+        // ✏️ Pour changer la difficulté du parcours : écart entre diapos (minGap/maxGap), taille (minWidth/maxWidth),
+        //    variation de hauteur (yVariation), probabilité d'obstacles et de bonus plus bas.
         // Procedural Slide Generation
         function generateSlides() {
+            // Écart horizontal minimum et maximum entre deux diapos (le maximum dépend de la difficulté) : plus l'écart est grand, plus il faut sauter loin.
             const minGap = 95;
             const maxGap = difficulty === 'hard' ? 240 : (difficulty === 'normal' ? 190 : 150);
+            // Largeur minimum et maximum d'une diapo.
             const minWidth = 190;
             const maxWidth = 340;
 
+            // On ne compte ici que les diapos de la voie principale (les diapos de rattrapage sont gérées à part).
             let mainSlides = slides.filter(s => !s.rescue);
             while (mainSlides.length < 6) {
                 let lastSlide = mainSlides[mainSlides.length - 1];
+                // Position de la nouvelle diapo : juste après la précédente + un écart aléatoire.
                 let x = lastSlide ? lastSlide.x + lastSlide.width + Math.random() * (maxGap - minGap) + minGap : 100;
 
+                // La hauteur change de ±70 px par rapport à la diapo précédente, mais reste entre 35 % et 75 % de la hauteur de l'écran.
                 let yVariation = (Math.random() - 0.5) * 140;
                 let y = lastSlide ? Math.min(Math.max(lastSlide.y + yVariation, height * 0.35), height * 0.75) : height * 0.6;
                 let w = Math.random() * (maxWidth - minWidth) + minWidth;
-                let theme = slideThemes[Math.floor(Math.random() * slideThemes.length)];
+                let theme = currentWorld.themes[Math.floor(Math.random() * currentWorld.themes.length)];
 
                 let newSlide = new Slide(x, y, w, 80, theme);
                 slides.push(newSlide);
                 mainSlides.push(newSlide);
 
+                // Obstacles : chaque diapo (à partir de la 3e) a une probabilité d'en avoir un (50 % facile, 70 % normal, 80 % difficile, + bonus du monde).
                 // Spawn Obstacles
-                if (mainSlides.length > 2 && Math.random() < (difficulty === 'hard' ? 0.8 : difficulty === 'easy' ? 0.5 : 0.7)) {
+                if (mainSlides.length > 2 && Math.random() < Math.min(0.92, (difficulty === 'hard' ? 0.8 : difficulty === 'easy' ? 0.5 : 0.7) + currentWorld.obst)) {
                     let r = Math.random();
+                    // Type au hasard : horloge 35 %, punaise 30 %, laser 35 %.
                     let obsType = r > 0.65 ? 'deadline' : (r > 0.35 ? 'pin' : 'laser');
                     let obsX = newSlide.x + Math.random() * (newSlide.width - 60) + 30;
                     obstacles.push(new Obstacle(obsX, newSlide.y, obsType));
                 }
 
+                // Bonus : 55 % des diapos en ont un, posé au milieu et un peu au-dessus de la diapo.
                 // Spawn Collectibles
                 if (Math.random() > 0.45) {
+                    // Probabilités des bonus : café 60 %, Fureur 14 %, bouclier 14 %, Sprint VIP 7 %, vol 5 %.
+                    // ✏️ Change les seuils (0.95, 0.88...) pour rendre un bonus plus ou moins rare.
                     let itemType = 'coffee';
                     let randType = Math.random();
                     if (randType > 0.95) itemType = 'fly';
@@ -1000,12 +1204,18 @@
         }
 
         // Depuis la voie de rattrapage (hors écran), le saut est plus puissant pour remonter
-        function jumpPower(y) { return y > height * 0.95 ? -21 : -13.5; }
+        // ✏️ SAUTS : puissance (hauteur) d'un saut. -13.5 = saut normal ; plus le nombre est négatif, plus on saute haut.
+        // Le premier nombre (-Math.max(21, ...)) est le saut boosté depuis la voie de rattrapage.
+        // Pour changer le NOMBRE de sauts, voir "maxJumps" plus haut.
+        function jumpPower(y) { return y > height * 0.95 ? -Math.max(21, Math.sqrt(1.3 * (0.25 * height + 170))) : -13.5; }
 
         // Diapos de rattrapage : voie du bas, plus courte, bien plus d'obstacles
         const rescueTheme = { bg: '#3b0a0a', border: '#ef4444', title: 'DIAPO DE RATTRAPAGE' };
 
+        // Génère la voie de rattrapage : des diapos rouges placées SOUS l'écran (invisibles tant qu'on reste en haut).
+        // Elles sont plus courtes, plus espacées et portent 1 à 2 obstacles chacune : se rattraper a un prix.
         function generateRescue() {
+            // On crée des diapos de rattrapage jusqu'à couvrir la même distance que les diapos de la voie principale.
             const mainRight = Math.max(0, ...slides.filter(s => !s.rescue).map(s => s.x + s.width));
             const rescue = slides.filter(s => s.rescue);
             let right = rescue.length ? Math.max(...rescue.map(s => s.x + s.width)) : 220;
@@ -1028,12 +1238,14 @@
         }
 
         // Collision Engine & Combos
+        // Références HTML supplémentaires (écran de pause, indicateurs de vol et de vies, message de record).
         const pauseScreen = document.getElementById('pause-screen');
         const flyIndicator = document.getElementById('fly-indicator');
         const livesCount = document.getElementById('lives-count');
         const furyCount = document.getElementById('fury-count');
         const newRecord = document.getElementById('new-record');
 
+        // Met à jour l'affichage du nombre de vies et du compteur de boosters Fureur (x/3).
         function updateLivesHud() {
             livesCount.textContent = lives;
             furyCount.textContent = hyperCount;
@@ -1070,13 +1282,21 @@
             obstacles = obstacles.filter(o => !(o.x > player.x - 40 && o.x < player.x + 220 && Math.abs(o.y - target.y) < 2));
             player.y = target.y - player.height - 4;
             player.vy = 0;
-            player.jumpsLeft = 2;
+            player.jumpsLeft = maxJumps;
             player.flyTimer = 0;
             player.invuln = 150;
             player.wasGrounded = false;
             camDown = false;
         }
 
+        // Mode Voyage : change de monde toutes les 25 diapos
+        function nextWorld() {
+            currentWorld = worlds[(worlds.indexOf(currentWorld) + 1) % worlds.length];
+            addFloatingText('MONDE : ' + currentWorld.name.toUpperCase(), player.x, player.y - 60, '#fde047');
+            screenShake = 6;
+        }
+
+        // Change le combo, met à jour le badge et relance son animation.
         function setCombo(v) {
             combo = v;
             comboDisplay.textContent = 'x' + combo;
@@ -1085,7 +1305,10 @@
             comboDisplay.classList.add('animate-combo');
         }
 
+        // Toutes les collisions du jeu, appelée à chaque image après le déplacement :
+        //  1. atterrissage sur une diapo  2. obstacles  3. bonus  4. chute dans le vide.
         function checkCollisions() {
+            // On retient si le joueur était déjà posé à l'image précédente : on ne réagit à l'atterrissage qu'au moment où il se pose.
             const wasGrounded = player.wasGrounded;
             player.isGrounded = false;
             const pb = player.y + player.height;
@@ -1094,8 +1317,12 @@
             for (const slide of slides) {
                 const overlapX = player.x + player.width - 4 > slide.x && player.x + 4 < slide.x + slide.width;
                 if (!overlapX || player.vy < 0 || player.flyTimer > 0) continue;
+                // « Atterri » = le bas du joueur était au-dessus de la diapo à l'image précédente et il est maintenant en dessous.
+                // Ça marche même à grande vitesse (on ne rate pas une diapo en la traversant d'une image à l'autre).
                 const landed = player.prevBottom <= slide.y + 8 && pb >= slide.y;
+                // « Rebord » : si on rate le bord d'une diapo de très peu (moins de 30 px), le jeu nous rattrape et nous pose dessus.
                 const ledge = pb > slide.y + 8 && pb <= slide.y + 30 && player.x + player.width - slide.x < 22;
+                // On est posé : on remet les sauts, on annule la vitesse de chute et on colle le joueur sur la diapo.
                 if (landed || ledge) {
                     if (!wasGrounded) {
                         player.scaleX = 1.25;
@@ -1111,7 +1338,9 @@
                         } else if (slide !== lastLandedSlide) {
                             lastLandedSlide = slide;
                             slidesCleared++;
+                            if (worldChoice === 'all' && slidesCleared % 25 === 0) nextWorld();
                             streak++;
+                            // Le combo augmente d'un cran toutes les 3 nouvelles diapos, jusqu'à x5. ✏️ Change le 3 ou le 5 pour régler le combo.
                             const nc = Math.min(1 + Math.floor(streak / 3), 5);
                             if (nc !== combo) {
                                 setCombo(nc);
@@ -1121,7 +1350,7 @@
                         }
                     }
                     player.isGrounded = true;
-                    player.jumpsLeft = 2;
+                    player.jumpsLeft = maxJumps;
                     player.vy = 0;
                     player.y = slide.y - player.height;
                     camDown = !!slide.rescue;
@@ -1131,17 +1360,23 @@
             player.wasGrounded = player.isGrounded;
 
             // Obstacles
+            // Zone de collision du joueur (un peu plus petite que le dessin pour rester juste).
             const h = { x: player.x + 7, y: player.y + 6, w: player.width - 14, h: player.height - 8 };
             for (const obs of obstacles) {
                 const b = obstacleBox(obs);
                 if (!(h.x < b.x + b.w && h.x + h.w > b.x && h.y < b.y + b.h && h.y + h.h > b.y)) continue;
+                // Invincible (après un coup absorbé) : on ignore les obstacles.
                 if (player.invuln > 0) continue;
+                // Quand un obstacle est touché, plusieurs protections sont testées dans cet ordre :
+                // Sprint VIP → bouclier → Fureur → vie en réserve → sinon game over.
+                // Les trois premières détruisent l'obstacle (et peuvent donner des points).
                 if (player.vipTimer > 0) {
                     screenShake = 8;
                     createParticles(obs.x, obs.y, '#c084fc', 16);
                     addFloatingText('+100 VIP!', obs.x, obs.y, '#c084fc');
                     score += 100;
                     obs.x = -999;
+                // Bouclier : il se brise, l'obstacle est détruit, le combo repart à x1 et on est invincible 1 seconde.
                 } else if (player.shieldActive) {
                     player.shieldActive = false;
                     player.invuln = 60;
@@ -1152,6 +1387,7 @@
                     createParticles(player.x, player.y, '#22d3ee', 20);
                     addFloatingText('BOUCLIER BRISÉ !', player.x, player.y - 20, '#22d3ee');
                     obs.x = -999;
+                // Fureur : on détruit l'obstacle et on gagne 50 points.
                 } else if (player.hyperTimer > 0) {
                     screenShake = 6;
                     createParticles(obs.x, obs.y, '#eab308', 12);
@@ -1159,28 +1395,33 @@
                     score += 50;
                     obs.x = -999;
                 } else {
+                    // Aucune protection : on perd une vie en réserve (s'il y en a une), sinon c'est le game over.
                     if (loseLife('Vous avez été percuté par un piège !')) { obs.x = -999; continue; }
                     return;
                 }
             }
 
+            // Bonus : si le joueur touche un booster, on applique son effet (durée en images : 60 = 1 seconde).
             // Bonus
             for (const item of collectibles) {
                 if (item.collected ||
                     !(player.x + player.width > item.x && player.x < item.x + item.width &&
                       player.y + player.height > item.y && player.y < item.y + item.height)) continue;
                 item.collected = true;
+                // Café : barre de vitesse pendant 3 secondes, score ×1.5 et points immédiats.
                 if (item.type === 'coffee') {
                     player.coffeeBoostTimer = 180;
                     score += 200 * combo;
                     playSound('coffee');
                     createParticles(item.x, item.y, '#f59e0b', 14);
                     addFloatingText('+' + (200 * combo) + ' CAFÉ!', item.x, item.y, '#f59e0b');
+                // Bouclier : protège contre le prochain obstacle.
                 } else if (item.type === 'shield') {
                     player.shieldActive = true;
                     playSound('shield');
                     createParticles(item.x, item.y, '#22d3ee', 16);
                     addFloatingText('BOUCLIER!', item.x, item.y, '#22d3ee');
+                // Fureur : score ×2 et destruction des obstacles pendant 4 secondes. Trois Fureur = une vie en plus.
                 } else if (item.type === 'hyper') {
                     player.hyperTimer = 240;
                     hyperCount++;
@@ -1195,12 +1436,14 @@
                     playSound('hyper');
                     createParticles(item.x, item.y, '#fde047', 18);
                     addFloatingText('FUREUR x2!', item.x, item.y, '#fde047');
+                // Vol : dure flyDuration secondes (réglable avec la barre « Durée du vol » de l'écran d'accueil ; 9 s par défaut).
                 } else if (item.type === 'fly') {
-                    player.flyTimer = 540;
-                    player.jumpsLeft = 2;
+                    player.flyTimer = flyDuration * 60; // durée en secondes × 60 images par seconde
+                    player.jumpsLeft = maxJumps;
                     playSound('fly');
                     createParticles(item.x, item.y, '#2dd4bf', 18);
                     addFloatingText('VOL ! MAINTIENS SAUT', item.x, item.y, '#2dd4bf');
+                // Sprint VIP : course très rapide pendant environ 3 secondes, qui détruit les obstacles.
                 } else if (item.type === 'vip') {
                     player.vipTimer = 200;
                     playSound('vip');
@@ -1209,9 +1452,12 @@
                 }
             }
 
+            // Chute dans le vide : le joueur est sous la voie de rattrapage → vie perdue (ou game over), puis réapparition.
             if (player.y > height + 330 && loseLife('Vous êtes tombé entre deux diapositives !')) respawnOnMain();
         }
 
+        // Fin de partie : on fige le jeu, on enregistre le record, on remplit l'écran « Game Over » et on l'affiche.
+        // Le test « gameState !== PLAYING » évite de déclencher deux fois la fin de partie dans la même image.
         function triggerGameOver(reason) {
             if (gameState !== 'PLAYING') return;
             playSound('hit');
@@ -1235,14 +1481,16 @@
             gameOverScreen.classList.remove('hidden');
         }
 
+        // Démarre une nouvelle partie : remet à zéro score, vitesse, vies, objets et joueur, crée la première diapo, puis passe en PLAYING.
+        // ✏️ Vitesse de départ par difficulté : voir la ligne « baseSpeed = difficulty === ... » juste en dessous.
         function resetGame() {
             initAudio();
             score = 0;
             maxCombo = 1;
             slidesCleared = 0;
             streak = 0;
-            baseSpeed = difficulty === 'hard' ? 8.2 : (difficulty === 'easy' ? 5.2 : 6.6);
-            gameSpeed = baseSpeed;
+            baseSpeed = difficulty === 'hard' ? 190.2 : (difficulty === 'easy' ? 5.2 : 6.6);
+            gameSpeed = baseSpeed * worlds[worldChoice === 'all' ? 0 : worldChoice].speed;
 
             slides = [];
             obstacles = [];
@@ -1251,8 +1499,10 @@
             floatingTexts = [];
             setCombo(1);
 
+            currentWorld = worlds[worldChoice === 'all' ? 0 : worldChoice];
+            snapBackground();
             const startY = height * 0.62;
-            const first = new Slide(50, startY, 480, 80, slideThemes[0]);
+            const first = new Slide(50, startY, 480, 80, currentWorld.themes[0]);
             slides.push(first);
             lastLandedSlide = first;
             lives = 0;
@@ -1261,6 +1511,7 @@
             camY = 0;
             camDown = false;
             player.reset(startY - player.height);
+            addFloatingText('MONDE : ' + currentWorld.name.toUpperCase(), 140, startY - 120, '#fde047');
 
             pauseScreen.classList.add('hidden');
             btnPause.innerHTML = '<i class="fas fa-pause"></i>';
@@ -1269,6 +1520,7 @@
             gameState = 'PLAYING';
         }
 
+        // Retour à l'écran d'accueil (menu) : on cache les écrans et les indicateurs.
         function returnToHome() {
             gameState = 'START';
             btnPause.innerHTML = '<i class="fas fa-pause"></i>';
@@ -1283,6 +1535,7 @@
             boostBar.style.width = '0%';
         }
 
+        // Pause ↔ reprise. En pause, gameLoop continue de dessiner la scène mais ne la met plus à jour.
         function togglePause() {
             if (gameState === 'PLAYING') {
                 gameState = 'PAUSED';
@@ -1295,6 +1548,7 @@
             }
         }
 
+        // Change un texte seulement s'il a changé (évite du travail inutile à chaque image).
         function setText(el, v) {
             const s = String(v);
             if (el.textContent !== s) el.textContent = s;
@@ -1302,14 +1556,22 @@
 
         // Boucle de jeu (indépendante de la fréquence d'écran grâce au delta-time)
         function gameLoop(now) {
+            // Demande au navigateur d'appeler gameLoop à la prochaine image : la boucle tourne ainsi en continu (~60 fois par seconde).
             requestAnimationFrame(gameLoop);
+            // dt = temps écoulé depuis la dernière image, en unités de 1/60 s (1 = écran à 60 Hz, 0.5 = écran à 120 Hz).
+            // Tous les mouvements sont multipliés par dt : le jeu va à la même vitesse sur tous les écrans.
+            // Plafonné à 2.5 pour éviter un énorme saut après un ralentissement.
             const dt = Math.min((now - (lastTime || now)) / 16.667, 2.5);
             lastTime = now;
+            // true uniquement en jeu. En pause ou en fin de partie, rien n'avance mais la scène reste dessinée.
             const playing = gameState === 'PLAYING';
 
+            // Prépare le dessin pour les écrans haute densité (netteté), puis efface l'image précédente et dessine le fond.
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
             ctx.clearRect(0, 0, width, height);
+            drawBackground(dt);
             ctx.save();
+            // Tremblement d'écran : on décale légèrement tout le dessin au hasard, et l'intensité diminue à chaque image.
             if (screenShake > 0) {
                 ctx.translate((Math.random() - 0.5) * screenShake, (Math.random() - 0.5) * screenShake);
                 screenShake *= 0.9;
@@ -1317,48 +1579,76 @@
             }
 
             // Pluie de bureau
+            // Particules de fond du monde actuel (pluie, étoiles, braises, bulles...) : déplacement, retour de l'autre côté de l'écran, dessin.
+            const rn = currentWorld.rain;
             officeRain.forEach(r => {
-                if (playing) r.y += r.speed * dt;
-                if (r.y > height) r.y = -20;
-                ctx.strokeStyle = '#64748b';
+                if (playing) {
+                    r.y += r.speed * (rn.sp || 1) * rn.dir * dt;
+                    r.x += (rn.drift || 0) * r.speed * dt;
+                }
+                if (rn.dir > 0 && r.y > height) { r.y = -20; r.x = Math.random() * width; }
+                if (rn.dir < 0 && r.y < -20) { r.y = height + 10; r.x = Math.random() * width; }
+                if (r.x > width) r.x = 0;
+                if (r.x < 0) r.x = width;
                 ctx.globalAlpha = r.alpha;
-                ctx.lineWidth = 1;
-                ctx.beginPath();
-                ctx.moveTo(r.x, r.y);
-                ctx.lineTo(r.x, r.y + r.length);
-                ctx.stroke();
+                if (rn.shape === 'dot') {
+                    ctx.fillStyle = rn.color;
+                    ctx.beginPath();
+                    ctx.arc(r.x, r.y, r.length / 6, 0, Math.PI * 2);
+                    ctx.fill();
+                } else {
+                    ctx.strokeStyle = rn.color;
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(r.x, r.y);
+                    ctx.lineTo(r.x, r.y + r.length);
+                    ctx.stroke();
+                }
             });
             ctx.globalAlpha = 1.0;
 
+            // Sur l'écran d'accueil on ne dessine que le fond. Sinon : mise à jour (si on joue) puis dessin de la scène.
             if (gameState !== 'START') {
                 if (playing) {
                     // La vitesse suit la progression et les bonus (café / sprint VIP)
-                    const target = baseSpeed * (player.vipTimer > 0 ? 1.35 : 1) * (player.coffeeBoostTimer > 0 ? 1.12 : 1);
+                    // Vitesse cible = vitesse de base × monde × bonus (VIP ×1.35, café ×1.12). gameSpeed la rejoint progressivement (pas d'à-coups).
+                    const target = baseSpeed * currentWorld.speed * (player.vipTimer > 0 ? 1.35 : 1) * (player.coffeeBoostTimer > 0 ? 1.12 : 1);
                     gameSpeed += (target - gameSpeed) * Math.min(1, 0.08 * dt);
                     const d = gameSpeed * dt;
+                    // Le monde défile : tout est décalé vers la gauche de d pixels. C'est ce qui donne l'impression que le joueur avance.
                     slides.forEach(s => s.x -= d);
                     obstacles.forEach(o => o.x -= d);
                     collectibles.forEach(c => c.x -= d);
 
+                    // Supprime les objets sortis de l'écran par la gauche (garde le jeu rapide).
                     slides = slides.filter(s => s.x + s.width > -100);
                     obstacles = obstacles.filter(o => o.x + o.width > -100);
                     collectibles = collectibles.filter(c => !c.collected && c.x + c.width > -100);
 
+                    // Ordre important : physique du joueur → décision du bot → création des diapos → collisions.
                     player.update(dt);
                     if (autoBotActive) updateBotLogic();
                     generateSlides();
+                    // (La voie de rattrapage est complétée au fur et à mesure, comme la voie principale.)
                     generateRescue();
                     checkCollisions();
+                    // Caméra : elle descend quand le joueur tombe sous la voie principale (pour montrer la voie de rattrapage),
+                    // et remonte quand il se repose sur une diapo principale ou remonte assez haut.
                     if (!camDown && player.y > height * 0.8) camDown = true;
                     else if (camDown && !player.isGrounded && player.y < height * 0.5) camDown = false;
+                    // Déplacement doux de la caméra vers sa cible (camY se rapproche de 0 ou du décalage bas).
                     camY += ((camDown ? height * 0.45 : 0) - camY) * Math.min(1, 0.12 * dt);
 
                     if (gameState === 'PLAYING') {
+                        // Multiplicateur de score = combo × Fureur (×2) × café (×1.5).
                         const multiplier = combo * (player.hyperTimer > 0 ? 2 : 1) * (player.coffeeBoostTimer > 0 ? 1.5 : 1);
+                        // Le score augmente avec la distance parcourue : plus on va vite, plus on marque.
                         score += gameSpeed * 0.05 * multiplier * dt;
+                        // Accélération très lente du jeu. 13 = vitesse maximum. ✏️ Change 0.00035 (rythme) ou 13 (plafond) pour régler la difficulté.
                         baseSpeed = Math.min(baseSpeed + 0.00035 * dt, 13);
                     }
 
+                    // Mise à jour de l'interface (score, diapos, barre de café, indicateurs de bonus).
                     setText(scoreDisplay, Math.floor(score));
                     setText(slideCountDisplay, slidesCleared);
                     boostBar.style.width = (player.coffeeBoostTimer / 180 * 100) + '%';
@@ -1371,6 +1661,7 @@
 
                 // La scène reste dessinée en pause et en fin de partie
                 ctx.save();
+                // La caméra décale tout le décor vers le haut quand on est sur la voie de rattrapage.
                 ctx.translate(0, -camY);
                 slides.forEach(s => { if (s.y - camY < height + 20) s.draw(); });
                 obstacles.forEach(o => { if (o.y - 70 - camY < height) o.draw(); });
@@ -1384,6 +1675,7 @@
             ctx.restore();
         }
 
+        // Adapte le canvas à la taille de la fenêtre (et à la densité de pixels) puis recrée les particules de fond.
         function handleResize() {
             dpr = Math.min(window.devicePixelRatio || 1, 2);
             width = window.innerWidth;
@@ -1394,11 +1686,17 @@
         }
         window.addEventListener('resize', handleResize);
 
+        // --- CONTRÔLES ---------------------------------------------------
         // Contrôles
+        // ✏️ Touches qui font sauter (codes de touches du clavier). Ajoute-en ici pour en avoir plus.
         const JUMP_KEYS = ['Space', 'ArrowUp', 'KeyW'];
+        // Appui sur la touche de saut : on saute (et en vol, maintenir fait monter).
         function jumpPress() { if (gameState === 'PLAYING') { player.flyHold = true; player.jump(); } }
+        // Relâchement : on arrête de monter en vol, et on coupe le saut pour qu'il soit plus court.
         function jumpRelease() { player.flyHold = false; if (gameState === 'PLAYING') player.cutJump(); }
 
+        // Clavier : Espace/↑/W = sauter (ou lancer / relancer la partie), P ou Échap = pause, B = bot.
+        // e.repeat ignore les touches maintenues ; preventDefault empêche la page de défiler avec Espace.
         window.addEventListener('keydown', (e) => {
             if (e.repeat) return;
             if (JUMP_KEYS.includes(e.code)) {
@@ -1412,6 +1710,7 @@
                 btnBot.click();
             }
         });
+        // Relâcher la touche de saut.
         window.addEventListener('keyup', (e) => { if (JUMP_KEYS.includes(e.code)) jumpRelease(); });
 
         // Tactile / souris : bouton dédié ou tape n'importe où sur le jeu
@@ -1427,12 +1726,14 @@
         // Évite que la barre d'espace réactive le dernier bouton cliqué
         document.querySelectorAll('button').forEach(b => b.addEventListener('click', () => b.blur()));
 
+        // Boutons de l'interface → leurs actions.
         btnStart.addEventListener('click', resetGame);
         btnRestart.addEventListener('click', resetGame);
         btnGameOverHome.addEventListener('click', returnToHome);
         btnHome.addEventListener('click', returnToHome);
         btnPause.addEventListener('click', togglePause);
 
+        // Active/désactive le bot et change l'apparence du bouton.
         btnBot.addEventListener('click', () => {
             autoBotActive = !autoBotActive;
             btnBot.classList.toggle('bg-emerald-600/40', autoBotActive);
@@ -1441,11 +1742,67 @@
             if (!autoBotActive) botIndicator.style.display = 'none';
         });
 
+        // Active/coupe le son et change l'icône du bouton.
         btnSound.addEventListener('click', () => {
             soundEnabled = !soundEnabled;
             btnSound.innerHTML = soundEnabled ? '<i class="fas fa-volume-up"></i>' : '<i class="fas fa-volume-mute"></i>';
             btnSound.classList.toggle('text-red-400', !soundEnabled);
         });
+
+        // Choix du monde
+        const worldBtns = document.querySelectorAll('.world-btn');
+        function refreshWorldBtns() {
+            worldBtns.forEach(b => {
+                const on = String(worldChoice) === b.dataset.world;
+                ['bg-indigo-600/40', 'border-indigo-500', 'text-indigo-200'].forEach(c => b.classList.toggle(c, on));
+                ['bg-slate-800', 'border-slate-700', 'text-slate-300'].forEach(c => b.classList.toggle(c, !on));
+            });
+            currentWorld = worlds[worldChoice === 'all' ? 0 : worldChoice];   // aperçu du fond sur l'écran d'accueil
+        }
+        try {
+            const sw = localStorage.getItem('slide_runner_world');
+            if (sw === 'all') worldChoice = 'all';
+            else if (sw !== null && worlds[parseInt(sw)]) worldChoice = parseInt(sw);
+        } catch (e) {}
+        refreshWorldBtns();
+        snapBackground();
+        worldBtns.forEach(b => b.addEventListener('click', () => {
+            worldChoice = b.dataset.world === 'all' ? 'all' : parseInt(b.dataset.world);
+            refreshWorldBtns();
+            try { localStorage.setItem('slide_runner_world', worldChoice); } catch (e) {}
+        }));
+
+        // Nombre de sauts (barre)
+        const jumpsSlider = document.getElementById('jumps-slider');
+        const jumpsValue = document.getElementById('jumps-value');
+        try {
+            const saved = parseInt(localStorage.getItem('slide_runner_jumps'));
+            if (saved >= 1 && saved <= 6) maxJumps = saved; // ✏️ SAUTS : si tu changes min/max de la barre dans le HTML, change aussi 1 et 6 ici
+        } catch (e) {}
+        jumpsSlider.value = maxJumps;
+        jumpsValue.textContent = maxJumps;
+        jumpsSlider.addEventListener('input', () => {
+            maxJumps = parseInt(jumpsSlider.value);
+            jumpsValue.textContent = maxJumps;
+            try { localStorage.setItem('slide_runner_jumps', maxJumps); } catch (e) {}
+        });
+        jumpsSlider.addEventListener('change', () => jumpsSlider.blur());
+
+        // Durée du vol (barre) : même principe que la barre de sauts, valeur retenue dans le navigateur
+        const flySlider = document.getElementById('fly-slider');
+        const flyValue = document.getElementById('fly-value');
+        try {
+            const savedFly = parseInt(localStorage.getItem('slide_runner_fly'));
+            if (savedFly >= 3 && savedFly <= 20) flyDuration = savedFly; // ✏️ DURÉE DU VOL : si tu changes min/max de la barre dans le HTML, change aussi 3 et 20 ici
+        } catch (e) {}
+        flySlider.value = flyDuration;
+        flyValue.textContent = flyDuration;
+        flySlider.addEventListener('input', () => {
+            flyDuration = parseInt(flySlider.value);
+            flyValue.textContent = flyDuration;
+            try { localStorage.setItem('slide_runner_fly', flyDuration); } catch (e) {}
+        });
+        flySlider.addEventListener('change', () => flySlider.blur());
 
         // Difficulté
         document.querySelectorAll('.diff-btn').forEach(btn => {
@@ -1461,6 +1818,8 @@
             });
         });
 
+        // Démarrage : une fois la page chargée on adapte le canvas, on affiche le record, on attend la police des icônes
+        // (indispensable pour les dessiner sur le canvas) puis on lance la boucle de jeu.
         window.onload = async () => {
             handleResize();
             highscoreDisplay.textContent = highScore;
